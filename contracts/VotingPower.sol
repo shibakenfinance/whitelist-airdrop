@@ -7,7 +7,7 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
 /**
  * @title VotingPower
- * @dev Manages voting power based on staked tokens with time-lock multipliers
+ * @dev Manages voting power based on staked tokens, expertise, and infrastructure contribution
  */
 contract VotingPower is Ownable, ReentrancyGuard {
     IERC20 public sbxToken;
@@ -17,9 +17,15 @@ contract VotingPower is Ownable, ReentrancyGuard {
     mapping(address => uint256) public lockEndTime;
     mapping(address => uint256) public votingPower;
     
+    // Expertise and contribution tracking
+    mapping(address => bool) public isExpert;
+    mapping(address => uint256) public infrastructureContribution;
+    
     // Time lock tiers (in days) and their multipliers (x100 for precision)
     uint256 constant public MIN_LOCK_DAYS = 7;
     uint256 constant public MULTIPLIER_PRECISION = 100;
+    uint256 constant public EXPERT_MULTIPLIER = 150; // 1.5x for experts
+    uint256 constant public MAX_INFRA_MULTIPLIER = 300; // Up to 3x for infrastructure
     
     struct LockTier {
         uint256 days;
@@ -31,6 +37,8 @@ contract VotingPower is Ownable, ReentrancyGuard {
     event Staked(address indexed user, uint256 amount, uint256 lockDays);
     event Unstaked(address indexed user, uint256 amount);
     event VotingPowerUpdated(address indexed user, uint256 newVotingPower);
+    event ExpertStatusUpdated(address indexed user, bool isExpert);
+    event InfrastructureContributionUpdated(address indexed user, uint256 amount);
     
     constructor(address _sbxToken) {
         sbxToken = IERC20(_sbxToken);
@@ -109,10 +117,22 @@ contract VotingPower is Ownable, ReentrancyGuard {
             daysLocked = (lockEndTime[user] - block.timestamp) / 1 days;
         }
         
-        // Get multiplier based on lock time
+        // Get base multiplier based on lock time
         uint256 multiplier = getLockTierMultiplier(daysLocked);
         
-        // Calculate voting power: stake * multiplier / precision
+        // Apply expert multiplier if applicable
+        if (isExpert[user]) {
+            multiplier = (multiplier * EXPERT_MULTIPLIER) / MULTIPLIER_PRECISION;
+        }
+        
+        // Apply infrastructure contribution multiplier
+        uint256 infraMultiplier = (infrastructureContribution[user] * MAX_INFRA_MULTIPLIER) / MULTIPLIER_PRECISION;
+        if (infraMultiplier > MAX_INFRA_MULTIPLIER) {
+            infraMultiplier = MAX_INFRA_MULTIPLIER;
+        }
+        multiplier += infraMultiplier;
+        
+        // Calculate final voting power: stake * multiplier / precision
         uint256 newVotingPower = (stakedAmount * multiplier) / MULTIPLIER_PRECISION;
         votingPower[user] = newVotingPower;
         
@@ -120,6 +140,18 @@ contract VotingPower is Ownable, ReentrancyGuard {
     }
     
     // Admin functions
+    function setExpertStatus(address user, bool status) external onlyOwner {
+        isExpert[user] = status;
+        _updateVotingPower(user);
+        emit ExpertStatusUpdated(user, status);
+    }
+    
+    function updateInfrastructureContribution(address user, uint256 amount) external onlyOwner {
+        infrastructureContribution[user] = amount;
+        _updateVotingPower(user);
+        emit InfrastructureContributionUpdated(user, amount);
+    }
+    
     function addLockTier(uint256 days_, uint256 multiplier) external onlyOwner {
         require(days_ > lockTiers[lockTiers.length - 1].days, "Invalid days");
         require(multiplier > lockTiers[lockTiers.length - 1].multiplier, "Invalid multiplier");
