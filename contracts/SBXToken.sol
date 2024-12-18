@@ -2,38 +2,56 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/security/Pausable.sol";
-import "@openzeppelin/contracts/access/AccessControl.sol";
 
-contract SBXToken is ERC20, ERC20Burnable, Pausable, AccessControl {
-    bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
-    bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
-
-    uint256 public constant INITIAL_SUPPLY = 1_000_000_000 * 10**18; // 1 billion tokens
-    uint256 public constant MAX_SUPPLY = 2_000_000_000 * 10**18;    // 2 billion tokens
-
-    constructor() ERC20("Shibaken Finance", "SBX") {
-        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        _grantRole(PAUSER_ROLE, msg.sender);
-        _grantRole(MINTER_ROLE, msg.sender);
-
-        _mint(msg.sender, INITIAL_SUPPLY);
+contract SBXToken is ERC20, Ownable, Pausable {
+    address public treasury;
+    address public governanceDAO;
+    
+    event TreasuryUpdated(address indexed newTreasury);
+    event GovernanceUpdated(address indexed newGovernance);
+    
+    constructor(
+        address _treasury,
+        address _governanceDAO
+    ) ERC20("Shibakery Exchange", "SBX") {
+        require(_treasury != address(0), "Invalid treasury address");
+        require(_governanceDAO != address(0), "Invalid governance address");
+        
+        treasury = _treasury;
+        governanceDAO = _governanceDAO;
     }
-
-    function pause() public onlyRole(PAUSER_ROLE) {
-        _pause();
-    }
-
-    function unpause() public onlyRole(PAUSER_ROLE) {
-        _unpause();
-    }
-
-    function mint(address to, uint256 amount) public onlyRole(MINTER_ROLE) {
-        require(totalSupply() + amount <= MAX_SUPPLY, "SBX: Max supply exceeded");
+    
+    function mint(address to, uint256 amount) external {
+        require(msg.sender == treasury || msg.sender == governanceDAO, "Unauthorized");
         _mint(to, amount);
     }
-
+    
+    function burn(uint256 amount) external {
+        _burn(msg.sender, amount);
+    }
+    
+    function updateTreasury(address newTreasury) external onlyOwner {
+        require(newTreasury != address(0), "Invalid treasury address");
+        treasury = newTreasury;
+        emit TreasuryUpdated(newTreasury);
+    }
+    
+    function updateGovernance(address newGovernance) external onlyOwner {
+        require(newGovernance != address(0), "Invalid governance address");
+        governanceDAO = newGovernance;
+        emit GovernanceUpdated(newGovernance);
+    }
+    
+    function pause() external onlyOwner {
+        _pause();
+    }
+    
+    function unpause() external onlyOwner {
+        _unpause();
+    }
+    
     function _beforeTokenTransfer(
         address from,
         address to,
